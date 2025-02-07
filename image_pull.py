@@ -1,4 +1,3 @@
-import cv2
 import os
 import time
 from datetime import datetime
@@ -9,4 +8,6 @@ supabase = get_supabase_client()
 response = supabase.storage.from_("videostorage").get_public_url(
   "dearsanta.png"
 )
+str(response)
+response=response[:-1]
 print(response)
