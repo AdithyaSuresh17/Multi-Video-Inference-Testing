@@ -5,3 +5,7 @@ __pycache__/
 *.pyc
 
 .env
+/Users/adithyasuresh/Documents/Project./Capstone/Multi-Video-Inference-Testing/Retrieval Code/.venv/
+__pycache__/
+m1.txt
+Retrieval Code/just_python_running.py
