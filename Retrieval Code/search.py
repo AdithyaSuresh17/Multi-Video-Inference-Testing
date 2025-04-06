@@ -89,6 +89,15 @@ class ClipSearchEngine:
                     "1970-01-01 00:00:00",  # Unix epoch start as earliest possible date
                     time_constraints["end_time"]
                 )
+            
+            print(f"Time-only search found {len(potential_matches)} matches")
+            
+            # If we found time-based matches, return them with default relevance scores
+            if potential_matches:
+                for match in potential_matches:
+                    match["relevance_score"] = 0.8  # Good default relevance for time-based matches
+                results = potential_matches[:self.max_results]
+                return results
         
         # If still no matches, try with all clips
         if not potential_matches:
@@ -110,6 +119,8 @@ class ClipSearchEngine:
             if time_info:
                 enhanced_query += f". Consider time relevance:{time_info}"
         
+        print(f"Enhanced query for ranking: '{enhanced_query}'")
+        
         # Rank results by semantic relevance
         ranked_results = self.processor.rank_clips(
             enhanced_query, 
@@ -117,8 +128,25 @@ class ClipSearchEngine:
             self.threshold
         )
         
+        print(f"Ranking returned {len(ranked_results)} results")
+        
+        # If ranking filtered out all results but we had potential matches,
+        # lower the threshold and try again
+        if not ranked_results and potential_matches:
+            print("Warning: Ranking filtered out all results. Trying with lower threshold.")
+            fallback_threshold = 0.3  # Lower threshold as fallback
+            ranked_results = self.processor.rank_clips(
+                enhanced_query,
+                potential_matches,
+                fallback_threshold
+            )
+            print(f"Fallback ranking returned {len(ranked_results)} results")
+        
         # Limit number of results
         results = ranked_results[:self.max_results] if len(ranked_results) > self.max_results else ranked_results
+        
+        # Debug output
+        print(f"Final results count: {len(results)}")
         
         return results
     
@@ -127,14 +155,16 @@ class ClipSearchEngine:
         all_terms = []
         
         # Extract all keywords from search terms
-        for category in search_terms.values():
-            if isinstance(category, list):
-                all_terms.extend(category)
-            elif isinstance(category, str):
-                all_terms.append(category)
+        for key, value in search_terms.items():
+            if key != "time_references":  # Skip time_references object
+                if isinstance(value, list):
+                    all_terms.extend(value)
+                elif isinstance(value, str):
+                    all_terms.append(value)
         
         # Filter out terms that are too short and skip the time_references field
-        keywords = [term for term in all_terms if term and len(term) > 2 and term != "time_references"]
+        keywords = [term for term in all_terms if term and len(term) > 2]
+        print(f"Search keywords: {keywords}")
         
         # If both keywords and time constraints exist, use combined search
         if keywords and time_constraints and (time_constraints.get("start_time") or time_constraints.get("end_time")):

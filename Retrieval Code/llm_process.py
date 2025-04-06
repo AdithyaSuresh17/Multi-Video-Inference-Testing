@@ -14,19 +14,33 @@ class QueryProcessor:
         """Extract structured search terms from user query including temporal aspects"""
         system_prompt = "You are a surveillance footage search query analyzer. Extract key visual elements and time references from the user's search query."
         
+        from datetime import datetime, timedelta
+        current_date = datetime.now()
+        
         user_prompt = f"""
         Analyze this search query: "{user_query}"
+        
+        Today's date is {current_date.strftime('%Y-%m-%d')}.
         
         Extract and return a JSON object with these fields:
         - keywords: List of important words or phrases to search for
         - primary_objects: Main subjects/objects in the query
         - attributes: Descriptive attributes (colors, sizes, etc.)
         - actions: Actions or behaviors mentioned
-        - time_references: Object with these fields:
-        KEEP IN MIND: As a default if the year is not present, it will be set to 2025 for all the following objects.
+        - time_references:  1Object with these fields:
+        KEEP IN MIND: 
+            - As a default if the year is not present, it will be set to 2025 for all dates
+            - For relative time expressions, calculate the actual date based on today ({current_date.strftime('%Y-%m-%d')})
+            - Handle time constraints like "before 8 PM" (meaning from start of day until 8 PM)
+            - Handle time constraints like "after 3 PM" (meaning from 3 PM until end of day)
+            - Convert expressions like "N days ago", "N weeks back", "N months ago" to actual dates
+            - "today" means {current_date.strftime('%Y-%m-%d')}
+            - "yesterday" means {(current_date - timedelta(days=1)).strftime('%Y-%m-%d')}
+            - "last week" means the 7-day period ending today
+            
             - specific_date: ISO date string YYYY-MM-DD if mentioned, null if not
             - specific_time: Time in 24hr format HH:MM if mentioned, null if not
-            - relative_time: Text descriptions like "yesterday", "last week", etc.
+            - relative_time: Original text descriptions like "yesterday", "last week", "3 days ago", etc.
             - time_period: Object with "start" and "end" fields if a range is mentioned
             - day_part: Morning/afternoon/evening/night if mentioned
         
@@ -142,11 +156,37 @@ class QueryProcessor:
 
         print(f"Parsing time references: {time_refs}")
 
+        if time_refs.get("time_period") and isinstance(time_refs["time_period"], dict):
+            period = time_refs["time_period"]
+            if period.get("start"):
+                result["start_time"] = period["start"]
+            if period.get("end"):
+                result["end_time"] = period["end"]
+            return result
+
         # Handle specific date
         if time_refs.get("specific_date"):
             try:
                 base_date = datetime.fromisoformat(time_refs["specific_date"])
-                # Set time to start of day if not specified
+                
+                # If today is mentioned, use actual current date
+                if time_refs.get("relative_time") and "today" in time_refs["relative_time"].lower():
+                    base_date = now.replace(hour=0, minute=0, second=0)
+                
+                # Check for "before X time" pattern
+                if time_refs.get("specific_time") and time_refs.get("relative_time") and "before" in str(time_refs.get("relative_time", "")).lower():
+                    time_parts = time_refs["specific_time"].split(":")
+                    hour = int(time_parts[0])
+                    minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+                    
+                    end_time = base_date.replace(hour=hour, minute=minute, second=0)
+                    start_time = base_date.replace(hour=0, minute=0, second=0)  # Start of day
+                    
+                    result["start_time"] = start_time.isoformat()
+                    result["end_time"] = end_time.isoformat()
+                    return result
+                    
+                # Default time handling
                 if not time_refs.get("specific_time"):
                     result["start_time"] = base_date.replace(hour=0, minute=0, second=0).isoformat()
                     result["end_time"] = base_date.replace(hour=23, minute=59, second=59).isoformat()
