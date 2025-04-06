@@ -24,3 +24,63 @@ class SupabaseConnector:
             raise Exception(f"Error in keyword search: {response.error}")
         
         return response.data
+    def get_clips_by_timeframe(self, start_time, end_time):
+        """Retrieve clips within a specific time range"""
+        # Convert ISO format to database text format by replacing 'T' with space
+        db_start_time = start_time.replace('T', ' ') if start_time else None
+        db_end_time = end_time.replace('T', ' ') if end_time else None
+        
+        print(f"Querying timeframe: {db_start_time} to {db_end_time}")
+        
+        response = self.client.table("todos").select("id, Clip_Name, Clip_URL, Clip_Description, Time_Added") \
+            .gte("Time_Added", db_start_time) \
+            .lte("Time_Added", db_end_time) \
+            .execute()
+        
+        print(f"Timeframe query returned {len(response.data) if response.data else 0} results")
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error in timeframe search: {response.error}")
+        
+        return response.data
+
+    def get_clips_by_keyword_and_time(self, keyword, start_time=None, end_time=None):
+        """Retrieve clips that match both keyword and time constraints"""
+        # Convert ISO format to database text format
+        db_start_time = start_time.replace('T', ' ') if start_time else None
+        db_end_time = end_time.replace('T', ' ') if end_time else None
+        
+        query = self.client.table("todos").select("id, Clip_Name, Clip_URL, Clip_Description, Time_Added") \
+            .ilike("Clip_Description", f"%{keyword}%")
+        
+        if db_start_time:
+            query = query.gte("Time_Added", db_start_time)
+        if db_end_time:
+            query = query.lte("Time_Added", db_end_time)
+            
+        response = query.execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error in combined search: {response.error}")
+        
+        return response.data
+    def get_clips_by_date(self, date_string):
+        """Retrieve clips from a specific date"""
+        # For text-based date columns, we can use LIKE to find all entries on a specific date
+        # Assuming the date part is always in YYYY-MM-DD format
+        if len(date_string) == 10:  # Just the date part
+            date_pattern = f"{date_string}%"  # e.g., "2025-04-06%"
+            
+            response = self.client.table("todos").select("id, Clip_Name, Clip_URL, Clip_Description, Time_Added") \
+                .like("Time_Added", date_pattern) \
+                .execute()
+            
+            print(f"Date pattern query for {date_pattern} returned {len(response.data) if response.data else 0} results")
+            
+            if hasattr(response, 'error') and response.error:
+                raise Exception(f"Error in date pattern search: {response.error}")
+            
+            return response.data
+        else:
+            # Fall back to exact time search
+            return self.get_clips_by_timeframe(date_string, date_string)

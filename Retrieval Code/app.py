@@ -1,11 +1,9 @@
-# app.py
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from search import ClipSearchEngine
 import uvicorn
 
-# Create FastAPI app
 app = FastAPI(title="Clip Search Engine")
 
 # Initialize search engine
@@ -158,7 +156,11 @@ HTML_CONTENT = """
                     <div class="card-body">
                         <div id="chat-container" class="mb-4">
                             <div class="system-message">
-                                Welcome to Clip Search! Ask me to find clips, for example: "Find a person in a black t-shirt" or "Show me clips with dogs playing".
+                                Welcome to Surveillance Search! You can ask questions like:
+                                - "Find a person in a black t-shirt" 
+                                - "Show me clips with people running"
+                                - "Show me footage from yesterday afternoon"
+                                - "Find groups of people in the lobby from last week"
                             </div>
                         </div>
                         <div class="input-group">
@@ -315,6 +317,15 @@ HTML_CONTENT = """
                     
                     resultDiv.querySelector('.result-name').textContent = result.name;
                     resultDiv.querySelector('.result-relevance').textContent = `Relevance: ${result.relevance}`;
+
+                    if (result.time_stamp) {
+                                const timestamp = new Date(result.time_stamp);
+                                const timestampElement = document.createElement('p');
+                                timestampElement.className = 'result-timestamp';
+                                timestampElement.textContent = `Recorded: ${timestamp.toLocaleString()}`;
+                                resultDiv.querySelector('.result-description').after(timestampElement);
+                        }
+
                     resultDiv.querySelector('.result-description').textContent = result.description;
                     
                     const mediaContainer = resultDiv.querySelector('.media-container');
@@ -392,7 +403,7 @@ HTML_CONTENT = """
 async def home():
     return HTMLResponse(content=HTML_CONTENT)
 
-# API endpoint for search
+# API endpoint 
 @app.post("/api/search")
 async def search(query: SearchQuery):
     results = search_engine.search(query.query)
@@ -401,15 +412,22 @@ async def search(query: SearchQuery):
     formatted_results = []
     for clip in results:
         relevance = clip.get("relevance_score", 0) * 100
-        formatted_results.append({
+        # Add the timestamp to the response
+        formatted_result = {
             "name": clip['Clip_Name'],
             "url": clip['Clip_URL'],
             "description": clip['Clip_Description'],
-            "relevance": f"{relevance:.1f}%"
-        })
+            "relevance": f"{relevance:.1f}%",
+            "time_stamp": clip.get('created_at') or clip.get('Time_Added') or clip.get('timestamp')
+        }
+        formatted_results.append(formatted_result)
+    
+    print(f"API returning {len(formatted_results)} results to frontend")
+    if formatted_results:
+        print(f"First result: {formatted_results[0]}")
     
     return {"results": formatted_results}
 
-# Run the app
+# http://localhost:8000/
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

@@ -3,6 +3,7 @@ import json
 from openai import OpenAI
 from config import OPENAI_API_KEY, GPT_MODEL
 
+#localhost code needs to be added
 class QueryProcessor:
     def __init__(self):
         """Initialize OpenAI client"""
@@ -10,8 +11,8 @@ class QueryProcessor:
         self.model = GPT_MODEL
     
     def extract_search_terms(self, user_query):
-        """Extract structured search terms from user query"""
-        system_prompt = "You are a search query analyzer. Extract key visual elements from the user's search query."
+        """Extract structured search terms from user query including temporal aspects"""
+        system_prompt = "You are a surveillance footage search query analyzer. Extract key visual elements and time references from the user's search query."
         
         user_prompt = f"""
         Analyze this search query: "{user_query}"
@@ -21,6 +22,13 @@ class QueryProcessor:
         - primary_objects: Main subjects/objects in the query
         - attributes: Descriptive attributes (colors, sizes, etc.)
         - actions: Actions or behaviors mentioned
+        - time_references: Object with these fields:
+        KEEP IN MIND: As a default if the year is not present, it will be set to 2025 for all the following objects.
+            - specific_date: ISO date string YYYY-MM-DD if mentioned, null if not
+            - specific_time: Time in 24hr format HH:MM if mentioned, null if not
+            - relative_time: Text descriptions like "yesterday", "last week", etc.
+            - time_period: Object with "start" and "end" fields if a range is mentioned
+            - day_part: Morning/afternoon/evening/night if mentioned
         
         Return only the JSON without explanation.
         """
@@ -125,3 +133,62 @@ class QueryProcessor:
             print(f"Error ranking clips: {e}")
             print(f"Raw response: {response.choices[0].message.content}")
             return []
+    def parse_time_references(self, time_refs):
+        """Convert natural language time references to actual timestamps"""
+        from datetime import datetime, timedelta
+        
+        now = datetime.now()
+        result = {"start_time": None, "end_time": None}
+
+        print(f"Parsing time references: {time_refs}")
+
+        # Handle specific date
+        if time_refs.get("specific_date"):
+            try:
+                base_date = datetime.fromisoformat(time_refs["specific_date"])
+                # Set time to start of day if not specified
+                if not time_refs.get("specific_time"):
+                    result["start_time"] = base_date.replace(hour=0, minute=0, second=0).isoformat()
+                    result["end_time"] = base_date.replace(hour=23, minute=59, second=59).isoformat()
+                else:
+                    # Handle specific time on specific date
+                    time_parts = time_refs["specific_time"].split(":")
+                    base_date = base_date.replace(hour=int(time_parts[0]), minute=int(time_parts[1]))
+                    # Default to a 1-hour window if just a specific time
+                    result["start_time"] = base_date.isoformat()
+                    result["end_time"] = (base_date + timedelta(hours=1)).isoformat()
+            except Exception as e:
+                print(f"Error parsing date: {e}")
+        
+        # Handle relative time references
+        if time_refs.get("relative_time"):
+            rel_time = time_refs["relative_time"].lower()
+            if "yesterday" in rel_time:
+                yesterday = now - timedelta(days=1)
+                result["start_time"] = yesterday.replace(hour=0, minute=0, second=0).isoformat()
+                result["end_time"] = yesterday.replace(hour=23, minute=59, second=59).isoformat()
+            elif "last week" in rel_time:
+                start = now - timedelta(days=7)
+                result["start_time"] = start.replace(hour=0, minute=0, second=0).isoformat()
+                result["end_time"] = now.isoformat()
+            # Add more relative time handlers as needed
+        
+        # Handle day parts
+        if time_refs.get("day_part") and not result["start_time"]:
+            day_part = time_refs["day_part"].lower()
+            base_date = now.replace(hour=0, minute=0, second=0)
+            if "morning" in day_part:
+                result["start_time"] = base_date.replace(hour=6).isoformat()
+                result["end_time"] = base_date.replace(hour=12).isoformat()
+            elif "afternoon" in day_part:
+                result["start_time"] = base_date.replace(hour=12).isoformat()
+                result["end_time"] = base_date.replace(hour=18).isoformat()
+            elif "evening" in day_part:
+                result["start_time"] = base_date.replace(hour=18).isoformat()
+                result["end_time"] = base_date.replace(hour=22).isoformat()
+            elif "night" in day_part:
+                result["start_time"] = base_date.replace(hour=22).isoformat()
+                result["end_time"] = (base_date + timedelta(days=1)).replace(hour=6).isoformat()
+        
+        print(f"Parsed result: {result}")
+        return result
