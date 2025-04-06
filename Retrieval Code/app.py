@@ -1,8 +1,11 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 from search import ClipSearchEngine
 import uvicorn
+import base64
+from db import SupabaseConnector
+
 
 app = FastAPI(title="Clip Search Engine")
 
@@ -403,6 +406,30 @@ HTML_CONTENT = """
 async def home():
     return HTMLResponse(content=HTML_CONTENT)
 
+
+@app.get("/api/image/{clip_id}")
+async def get_image(clip_id: str):
+    # Get the specific image from database
+    db_connector = SupabaseConnector()
+    response = db_connector.client.table("todos").select("base_64_image").eq("id", clip_id).execute()
+    
+    if not response.data:
+        return HTTPException(status_code=404, detail="Image not found")
+    
+    base64_data = response.data[0]["base_64_image"]
+    
+    # If base64 includes a data URI prefix, remove it
+    if "," in base64_data:
+        _, base64_data = base64_data.split(",", 1)
+    
+    # Decode the base64 data
+    try:
+        image_data = base64.b64decode(base64_data)
+        return Response(content=image_data, media_type="image/jpeg")
+    except Exception as e:
+        print(f"Error decoding image: {e}")
+        return HTTPException(status_code=500, detail="Error processing image")
+
 # API endpoint 
 @app.post("/api/search")
 async def search(query: SearchQuery):
@@ -412,13 +439,14 @@ async def search(query: SearchQuery):
     formatted_results = []
     for clip in results:
         relevance = clip.get("relevance_score", 0) * 100
+        image_url = f"/api/image/{clip['id']}"
         # Add the timestamp to the response
         formatted_result = {
-            "name": clip['Clip_Name'],
-            "url": clip['Clip_URL'],
-            "description": clip['Clip_Description'],
+            "name": clip['camera_id'],
+            "url": image_url, #NOT DISPLAYING THE BASE 64 IMAGE
+            "description": clip['image_description'],
             "relevance": f"{relevance:.1f}%",
-            "time_stamp": clip.get('created_at') or clip.get('Time_Added') or clip.get('timestamp')
+            "time_stamp": clip.get('time_created') 
         }
         formatted_results.append(formatted_result)
     

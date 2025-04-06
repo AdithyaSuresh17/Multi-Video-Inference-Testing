@@ -72,7 +72,7 @@ class QueryProcessor:
         for clip in clips:
             clip_data.append({
                 "id": clip["id"],
-                "description": clip["Clip_Description"]
+                "description": clip["image_description"]
             })
         
         system_prompt = """
