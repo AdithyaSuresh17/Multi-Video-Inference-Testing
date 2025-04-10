@@ -140,7 +140,7 @@ class ClipSearchEngine:
             if time_info:
                 enhanced_query += f". Consider time relevance:{time_info}"
         
-        print(f"Enhanced query for ranking: '{enhanced_query}'")
+        print(f"Enhanced query for ranking: {enhanced_query}\n")
         
         # Rank results by semantic relevance
         ranked_results = self.processor.rank_clips(
@@ -148,20 +148,21 @@ class ClipSearchEngine:
             potential_matches,
             self.threshold
         )
-        
-        print(f"Ranking returned {len(ranked_results)} results")
+        # print(f"Datatype of ranked list: {type(ranked_results)}\n")
+        # print(f"Results: {ranked_results}\n")
+        print(f"Ranking returned {len(ranked_results)} results\n")
         
         # If ranking filtered out all results but we had potential matches,
         # lower the threshold and try again
-        '''if not ranked_results and potential_matches:
-            print("Warning: Ranking filtered out all results. Trying with lower threshold.")
-            fallback_threshold = 0.3  # Lower threshold as fallback
-            ranked_results = self.processor.rank_clips(
-                enhanced_query,
-                potential_matches,
-                fallback_threshold
-            )
-            print(f"Fallback ranking returned {len(ranked_results)} results")'''
+        # '''if not ranked_results and potential_matches:
+        #     print("Warning: Ranking filtered out all results. Trying with lower threshold.")
+        #     fallback_threshold = 0.3  # Lower threshold as fallback
+        #     ranked_results = self.processor.rank_clips(
+        #         enhanced_query,
+        #         potential_matches,
+        #         fallback_threshold
+        #     )
+        #     print(f"Fallback ranking returned {len(ranked_results)} results")'''
         
         # Limit number of results
         results = ranked_results[:self.max_results] if len(ranked_results) > self.max_results else ranked_results

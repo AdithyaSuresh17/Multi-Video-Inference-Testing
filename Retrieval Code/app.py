@@ -224,7 +224,7 @@ HTML_CONTENT = """
             function isImageUrl(url) {
                 const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
                 const lowerCaseUrl = url.toLowerCase();
-                return imageExtensions.some(ext => lowerCaseUrl.endsWith(ext));
+                return lowerCaseUrl.startsWith('data:image/') || imageExtensions.some(ext => lowerCaseUrl.endsWith(ext));
             }
 
             // Function to check if URL is a video
@@ -439,11 +439,20 @@ async def search(query: SearchQuery):
     formatted_results = []
     for clip in results:
         relevance = clip.get("relevance_score", 0) * 100
-        image_url = f"/api/image/{clip['id']}"
+
+
+        base64_data = clip.get("base_64_image", "")
+
+
+        if base64_data and "," in base64_data:
+            _, base64_data = base64_data.split(",", 1)
+
+        img_actual = f"data:image/jpeg;base64,{base64_data}"
+        
         # Add the timestamp to the response
         formatted_result = {
             "name": clip['camera_id'],
-            "url": image_url, #NOT DISPLAYING THE BASE 64 IMAGE
+            "url": img_actual, #NOT DISPLAYING THE BASE 64 IMAGE
             "description": clip['image_description'],
             "relevance": f"{relevance:.1f}%",
             "time_stamp": clip.get('time_created') 
@@ -459,3 +468,4 @@ async def search(query: SearchQuery):
 # http://localhost:8000/
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
