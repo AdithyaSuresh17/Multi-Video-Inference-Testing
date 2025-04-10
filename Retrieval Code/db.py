@@ -43,6 +43,19 @@ class SupabaseConnector:
             raise Exception(f"Error in timeframe search: {response.error}")
         
         return response.data
+    def get_latest_clips(self, limit=10):
+        """Retrieve the most recent clips from the database, ordered by time"""
+        response = self.client.table("todos") \
+            .select("id, camera_id, base_64_image, image_description, time_created") \
+            .order("time_created", desc=True) \
+            .limit(limit) \
+            .execute()
+        
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"Error fetching latest clips: {response.error}")
+        
+        return response.data
+
 
     def get_clips_by_keyword_and_time(self, keyword, start_time=None, end_time=None):
         """Retrieve clips that match both keyword and time constraints"""

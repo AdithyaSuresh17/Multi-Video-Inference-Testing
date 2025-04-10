@@ -31,6 +31,7 @@ class QueryProcessor:
         KEEP IN MIND: 
             - As a default if the year is not present, it will be set to 2025 for all dates
             - For relative time expressions, calculate the actual date based on today ({current_date.strftime('%Y-%m-%d')})
+            - Handle time constraints like "between 12 Am and 6 PM" (meaning from 12 AM until 6 PM)
             - Handle time constraints like "before 8 PM" (meaning from start of day until 8 PM)
             - Handle time constraints like "after 3 PM" (meaning from 3 PM until end of day)
             - Convert expressions like "N days ago", "N weeks back", "N months ago" to actual dates

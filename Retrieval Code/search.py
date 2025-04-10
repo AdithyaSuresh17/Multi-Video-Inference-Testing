@@ -16,6 +16,27 @@ class ClipSearchEngine:
         """Execute search for clips matching the user query including temporal aspects"""
         print(f"Processing search: '{user_query}'")
         
+        # Check for "latest" or "most recent" queries
+        lower_query = user_query.lower()
+        if any(term in lower_query for term in ["latest", "most recent", "newest", "last"]):
+            print("Detected request for latest images")
+            
+            # Check if the user is asking for a single image
+            single_image_request = any(term in lower_query for term in ["image", "picture", "photo", "snapshot", "frame"])
+            
+            # Get the latest matches
+            latest_clips = self._get_latest_clips(lower_query)
+            
+            if latest_clips:
+                # If specifically requesting a single image, return only the most recent one
+                if single_image_request:
+                    print("Returning single latest image as requested")
+                    return [latest_clips[0]]  # Return just the first (most recent) result
+                else:
+                    print(f"Returning {len(latest_clips)} latest clips")
+                    return latest_clips
+        
+        # Regular search flow continues if not a "latest" query or if no results
         # Extract structured search terms from query
         search_terms = self.processor.extract_search_terms(user_query)
         print(f"Extracted terms: {search_terms}")
@@ -132,7 +153,7 @@ class ClipSearchEngine:
         
         # If ranking filtered out all results but we had potential matches,
         # lower the threshold and try again
-        if not ranked_results and potential_matches:
+        '''if not ranked_results and potential_matches:
             print("Warning: Ranking filtered out all results. Trying with lower threshold.")
             fallback_threshold = 0.3  # Lower threshold as fallback
             ranked_results = self.processor.rank_clips(
@@ -140,7 +161,7 @@ class ClipSearchEngine:
                 potential_matches,
                 fallback_threshold
             )
-            print(f"Fallback ranking returned {len(ranked_results)} results")
+            print(f"Fallback ranking returned {len(ranked_results)} results")'''
         
         # Limit number of results
         results = ranked_results[:self.max_results] if len(ranked_results) > self.max_results else ranked_results
@@ -149,6 +170,52 @@ class ClipSearchEngine:
         print(f"Final results count: {len(results)}")
         
         return results
+    
+    def _get_latest_clips(self, query):
+        """Get the most recent clips from the database"""
+        try:
+            # Get all clips with timestamp
+            all_clips = self.db.get_all_clips()
+            
+            if not all_clips:
+                return []
+            
+            # Filter for specific keywords if mentioned (e.g., "latest person", "latest car")
+            specific_object = None
+            for obj in ["person", "people", "car", "vehicle", "bike", "bicycle", "dog", "cat", "animal"]:
+                if obj in query:
+                    specific_object = obj
+                    break
+            
+            if specific_object:
+                print(f"Filtering latest results for '{specific_object}'")
+                filtered_clips = []
+                for clip in all_clips:
+                    if specific_object in clip.get("image_description", "").lower():
+                        filtered_clips.append(clip)
+                
+                if filtered_clips:
+                    all_clips = filtered_clips
+                else:
+                    print(f"No clips found with '{specific_object}', returning general latest clips")
+            
+            # Sort by time_created (most recent first)
+            sorted_clips = sorted(
+                all_clips, 
+                key=lambda x: x.get("time_created", "1970-01-01 00:00:00"), 
+                reverse=True
+            )
+            
+            # Add relevance scores
+            for clip in sorted_clips:
+                clip["relevance_score"] = 0.95  # High score for latest clips
+            
+            # Return top N results
+            return sorted_clips[:self.max_results]
+            
+        except Exception as e:
+            print(f"Error getting latest clips: {e}")
+            return []
     
     def _get_potential_matches(self, search_terms, time_constraints=None):
         """Get potential matches using keyword filtering and time constraints"""
