@@ -2,6 +2,7 @@
 import json
 from openai import OpenAI
 from config import OPENAI_API_KEY, GPT_MODEL
+from datetime import datetime, timedelta
 
 #localhost code needs to be added
 class QueryProcessor:
@@ -12,41 +13,74 @@ class QueryProcessor:
     
     def extract_search_terms(self, user_query):
         """Extract structured search terms from user query including temporal aspects"""
-        system_prompt = "You are a surveillance footage search query analyzer. Extract key visual elements and time references from the user's search query."
+        system_prompt = "You are a dual-purpose search query analyzer that can handle both surveillance footage search and PCB inspection search queries. Extract key visual elements and time references from the user's search query."
         
-        from datetime import datetime, timedelta
         current_date = datetime.now()
         
-        user_prompt = f"""
-        Analyze this search query: "{user_query}"
+        # Check if this is a PCB-related query
+        is_pcb_query = "pcb" in user_query.lower() or "circuit board" in user_query.lower() or "circuit" in user_query.lower() or "component" in user_query.lower() or user_query.lower().startswith("pcb inspection:")
         
-        Today's date is {current_date.strftime('%Y-%m-%d')}.
-        
-        Extract and return a JSON object with these fields:
-        - keywords: List of important words or phrases to search for
-        - primary_objects: Main subjects/objects in the query
-        - attributes: Descriptive attributes (colors, sizes, etc.)
-        - actions: Actions or behaviors mentioned
-        - time_references:  1Object with these fields:
-        KEEP IN MIND: 
-            - As a default if the year is not present, it will be set to 2025 for all dates
-            - For relative time expressions, calculate the actual date based on today ({current_date.strftime('%Y-%m-%d')})
-            - Handle time constraints like "between 12 Am and 6 PM" (meaning from 12 AM until 6 PM)
-            - Handle time constraints like "before 8 PM" (meaning from start of day until 8 PM)
-            - Handle time constraints like "after 3 PM" (meaning from 3 PM until end of day)
-            - Convert expressions like "N days ago", "N weeks back", "N months ago" to actual dates
-            - "today" means {current_date.strftime('%Y-%m-%d')}
-            - "yesterday" means {(current_date - timedelta(days=1)).strftime('%Y-%m-%d')}
-            - "last week" means the 7-day period ending today
+        if is_pcb_query:
+            # PCB-specific system instructions
+            user_prompt = f"""
+            Analyze this PCB inspection search query: "{user_query}"
             
-            - specific_date: ISO date string YYYY-MM-DD if mentioned, null if not
-            - specific_time: Time in 24hr format HH:MM if mentioned, null if not
-            - relative_time: Original text descriptions like "yesterday", "last week", "3 days ago", etc.
-            - time_period: Object with "start" and "end" fields if a range is mentioned
-            - day_part: Morning/afternoon/evening/night if mentioned
-        
-        Return only the JSON without explanation.
-        """
+            Today's date is {current_date.strftime('%Y-%m-%d')}.
+            
+            Extract and return a JSON object with these fields:
+            - keywords: List of important words or phrases to search for
+            - primary_components: Main PCB components in the query (capacitors, resistors, ICs, etc.)
+            - defect_types: Types of defects mentioned (missing components, solder bridges, misalignments, etc.)
+            - manufacturing_phase: Any mentioned manufacturing phase (assembly, soldering, testing)
+            - time_references: Object with these fields:
+            KEEP IN MIND: 
+                - As a default if the year is not present, it will be set to 2025 for all dates
+                - For relative time expressions, calculate the actual date based on today ({current_date.strftime('%Y-%m-%d')})
+                - Convert expressions like "N days ago", "N weeks back", "N months ago" to actual dates
+                - "today" means {current_date.strftime('%Y-%m-%d')}
+                - "yesterday" means {(current_date - timedelta(days=1)).strftime('%Y-%m-%d')}
+                - "last week" means the 7-day period ending today
+                
+                - specific_date: ISO date string YYYY-MM-DD if mentioned, null if not
+                - specific_time: Time in 24hr format HH:MM if mentioned, null if not
+                - relative_time: Original text descriptions like "yesterday", "last week", "3 days ago", etc.
+                - time_period: Object with "start" and "end" fields if a range is mentioned
+                - day_part: Morning/afternoon/evening/night if mentioned
+            
+            Return only the JSON without explanation.
+            """
+        else:
+            # Original surveillance prompt
+            user_prompt = f"""
+            Analyze this surveillance search query: "{user_query}"
+            
+            Today's date is {current_date.strftime('%Y-%m-%d')}.
+            
+            Extract and return a JSON object with these fields:
+            - keywords: List of important words or phrases to search for
+            - primary_objects: Main subjects/objects in the query
+            - attributes: Descriptive attributes (colors, sizes, etc.)
+            - actions: Actions or behaviors mentioned
+            - time_references:  Object with these fields:
+            KEEP IN MIND: 
+                - As a default if the year is not present, it will be set to 2025 for all dates
+                - For relative time expressions, calculate the actual date based on today ({current_date.strftime('%Y-%m-%d')})
+                - Handle time constraints like "between 12 Am and 6 PM" (meaning from 12 AM until 6 PM)
+                - Handle time constraints like "before 8 PM" (meaning from start of day until 8 PM)
+                - Handle time constraints like "after 3 PM" (meaning from 3 PM until end of day)
+                - Convert expressions like "N days ago", "N weeks back", "N months ago" to actual dates
+                - "today" means {current_date.strftime('%Y-%m-%d')}
+                - "yesterday" means {(current_date - timedelta(days=1)).strftime('%Y-%m-%d')}
+                - "last week" means the 7-day period ending today
+                
+                - specific_date: ISO date string YYYY-MM-DD if mentioned, null if not
+                - specific_time: Time in 24hr format HH:MM if mentioned, null if not
+                - relative_time: Original text descriptions like "yesterday", "last week", "3 days ago", etc.
+                - time_period: Object with "start" and "end" fields if a range is mentioned
+                - day_part: Morning/afternoon/evening/night if mentioned
+            
+            Return only the JSON without explanation.
+            """
         
         response = self.client.chat.completions.create(
             model=self.model,
@@ -70,12 +104,20 @@ class QueryProcessor:
         except Exception as e:
             print(f"Error parsing search terms: {e}")
             # Fallback to basic structure
-            return {
-                "keywords": [word for word in user_query.split() if len(word) > 2],
-                "primary_objects": [],
-                "attributes": [],
-                "actions": []
-            }
+            if is_pcb_query:
+                return {
+                    "keywords": [word for word in user_query.split() if len(word) > 2],
+                    "primary_components": [],
+                    "defect_types": [],
+                    "manufacturing_phase": []
+                }
+            else:
+                return {
+                    "keywords": [word for word in user_query.split() if len(word) > 2],
+                    "primary_objects": [],
+                    "attributes": [],
+                    "actions": []
+                }
     
     def rank_clips(self, user_query, clips, threshold=0.6):
         """Rank clips by relevance to the query"""
@@ -90,10 +132,23 @@ class QueryProcessor:
                 "description": clip["image_description"]
             })
         
-        system_prompt = """
-        You are a clip search system. Evaluate how relevant each clip is to the user's search query.
-        Return a JSON list of objects with id and score fields, where score is between 0 and 1.
-        """
+        # Check if this is a PCB-related query
+        is_pcb_query = "pcb" in user_query.lower() or "circuit board" in user_query.lower() or "component" in user_query.lower() or user_query.lower().startswith("pcb inspection:")
+        
+        if is_pcb_query:
+            system_prompt = """
+            You are a PCB inspection analysis system. Evaluate how relevant each clip is to the user's PCB inspection query.
+            Return a JSON list of objects with id and score fields, where score is between 0 and 1.
+            
+            Focus on PCB manufacturing defects, component issues, and quality control aspects.
+            """
+        else:
+            system_prompt = """
+            You are a surveillance clip search system. Evaluate how relevant each clip is to the user's search query.
+            Return a JSON list of objects with id and score fields, where score is between 0 and 1.
+            
+            Focus on people, actions, objects, and scene descriptions in surveillance context.
+            """
         
         user_prompt = f"""
         User search query: "{user_query}"
@@ -148,6 +203,7 @@ class QueryProcessor:
             print(f"Error ranking clips: {e}")
             print(f"Raw response: {response.choices[0].message.content}")
             return []
+            
     def parse_time_references(self, time_refs):
         """Convert natural language time references to actual timestamps"""
         from datetime import datetime, timedelta

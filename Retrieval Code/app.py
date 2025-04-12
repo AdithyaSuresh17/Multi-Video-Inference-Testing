@@ -7,7 +7,7 @@ import base64
 from db import SupabaseConnector
 
 
-app = FastAPI(title="Clip Search Engine")
+app = FastAPI(title="Dual-Purpose Search Engine")
 
 # Initialize search engine
 search_engine = ClipSearchEngine()
@@ -15,6 +15,7 @@ search_engine = ClipSearchEngine()
 # Model for search query
 class SearchQuery(BaseModel):
     query: str
+    mode: str = "surveillance"  # Default to surveillance mode
 
 # HTML content
 HTML_CONTENT = """
@@ -23,7 +24,7 @@ HTML_CONTENT = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clip Search</title>
+    <title>Dual-Purpose Search</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body {
@@ -46,6 +47,14 @@ HTML_CONTENT = """
 
         .system-message {
             background-color: #e3f2fd;
+            border-radius: 8px;
+            padding: 10px 15px;
+            margin-bottom: 15px;
+            max-width: 85%;
+        }
+
+        .pcb-system-message {
+            background-color: #e8f5e9;
             border-radius: 8px;
             padding: 10px 15px;
             margin-bottom: 15px;
@@ -81,6 +90,11 @@ HTML_CONTENT = """
 
         .result-name {
             color: #1565c0;
+            margin-bottom: 5px;
+        }
+
+        .pcb-result-name {
+            color: #2e7d32;
             margin-bottom: 5px;
         }
 
@@ -146,24 +160,87 @@ HTML_CONTENT = """
             padding: 10px;
             color: #757575;
         }
+
+        /* Mode toggle styling */
+        .mode-toggle {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .mode-toggle button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            margin: 0 5px;
+            cursor: pointer;
+        }
+
+        #surveillance-mode {
+            background-color: #1565c0;
+            color: white;
+        }
+
+        #pcb-mode {
+            background-color: #2e7d32;
+            color: white;
+        }
+
+        .mode-inactive {
+            opacity: 0.6;
+        }
+
+        /* PCB specific styles */
+        .pcb-card-header {
+            background-color: #2e7d32 !important;
+        }
+
+        .pcb-result-item {
+            border-left: 4px solid #2e7d32;
+        }
+        
+        .defect-tag {
+            display: inline-block;
+            background-color: #ffcdd2;
+            color: #c62828;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+        
+        .source-indicator {
+            font-size: 10px;
+            color: #666;
+            text-align: right;
+            padding: 2px;
+            margin-top: 2px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="row justify-content-center mt-5">
             <div class="col-md-8">
+                <div class="mode-toggle">
+                    <button id="surveillance-mode" class="active">Surveillance Mode</button>
+                    <button id="pcb-mode" class="mode-inactive">PCB Inspection Mode</button>
+                </div>
                 <div class="card shadow">
-                    <div class="card-header bg-primary text-white">
-                        <h3 class="mb-0">Clip Search Engine</h3>
+                    <div id="card-header" class="card-header bg-primary text-white">
+                        <h3 class="mb-0">Surveillance Search Engine</h3>
                     </div>
                     <div class="card-body">
                         <div id="chat-container" class="mb-4">
-                            <div class="system-message">
+                            <div id="welcome-message" class="system-message">
                                 Welcome to Surveillance Search! You can ask questions like:
-                                - "Find a person in a black t-shirt" 
-                                - "Show me clips with people running"
-                                - "Show me footage from yesterday afternoon"
-                                - "Find groups of people in the lobby from last week"
+                                <ul>
+                                    <li>Show me 'x' power line between 7PM and 8PM </li>
+                                    <li>Show anomalies in UPS room 1 from last week</li>
+                                    <li>Show me battery leakages over the last month</li>
+                                    
+                                </ul>
                             </div>
                         </div>
                         <div class="input-group">
@@ -182,6 +259,7 @@ HTML_CONTENT = """
             <h5 class="result-name"></h5>
             <p class="result-relevance"></p>
             <p class="result-description"></p>
+            <div class="defect-tags-container"></div>
             <div class="media-container"></div>
         </div>
     </template>
@@ -192,6 +270,99 @@ HTML_CONTENT = """
             const searchButton = document.getElementById('search-button');
             const chatContainer = document.getElementById('chat-container');
             const resultTemplate = document.getElementById('result-template');
+            const cardHeader = document.getElementById('card-header');
+            const welcomeMessage = document.getElementById('welcome-message');
+            const surveillanceMode = document.getElementById('surveillance-mode');
+            const pcbMode = document.getElementById('pcb-mode');
+            
+            // Current mode
+            let currentMode = "surveillance";
+            
+            // Mode toggle handlers
+            surveillanceMode.addEventListener('click', () => {
+                if (currentMode !== "surveillance") {
+                    currentMode = "surveillance";
+                    updateInterfaceForMode();
+                    
+                    // Update appearance
+                    surveillanceMode.classList.remove('mode-inactive');
+                    pcbMode.classList.add('mode-inactive');
+                    
+                    // Clear chat except welcome message
+                    clearChatHistory();
+                }
+            });
+            
+            pcbMode.addEventListener('click', () => {
+                if (currentMode !== "pcb") {
+                    currentMode = "pcb";
+                    updateInterfaceForMode();
+                    
+                    // Update appearance
+                    pcbMode.classList.remove('mode-inactive');
+                    surveillanceMode.classList.add('mode-inactive');
+                    
+                    // Clear chat except welcome message
+                    clearChatHistory();
+                }
+            });
+            
+            // Update interface based on mode
+            function updateInterfaceForMode() {
+                if (currentMode === "surveillance") {
+                    // Update header
+                    cardHeader.className = "card-header bg-primary text-white";
+                    cardHeader.querySelector('h3').textContent = "Surveillance Search Engine";
+                    
+                    // Update button color
+                    searchButton.className = "btn btn-primary";
+                    
+                    // Update welcome message
+                    welcomeMessage.className = "system-message";
+                    welcomeMessage.innerHTML = `
+                        Welcome to Surveillance Search! You can ask questions like:
+                        <ul>
+                            <li>Find a person in a black t-shirt</li>
+                            <li>Show me clips with people running</li>
+                            <li>Show me footage from yesterday afternoon</li>
+                            <li>Find groups of people in the lobby from last week</li>
+                        </ul>
+                    `;
+                    
+                    // Update search placeholder
+                    searchInput.placeholder = "What would you like to search for?";
+                } else {
+                    // Update header
+                    cardHeader.className = "card-header pcb-card-header text-white";
+                    cardHeader.querySelector('h3').textContent = "PCB Inspection Search Engine";
+                    
+                    // Update button color
+                    searchButton.className = "btn btn-success";
+                    
+                    // Update welcome message
+                    welcomeMessage.className = "pcb-system-message";
+                    welcomeMessage.innerHTML = `
+                        Welcome to PCB Inspection Search! You can ask questions like:
+                        <ul>
+                            <li>Find PCBs with missing capacitors</li>
+                            <li>Show boards with solder bridge defects</li>
+                            <li>Find cold solder joints from yesterday</li>
+                            <li>Show PCBs with misaligned components</li>
+                        </ul>
+                    `;
+                    
+                    // Update search placeholder
+                    searchInput.placeholder = "Describe the PCB defect to search for...";
+                }
+            }
+            
+            // Clear chat history but keep welcome message
+            function clearChatHistory() {
+                // Remove all children except the welcome message
+                while (chatContainer.childNodes.length > 1) {
+                    chatContainer.removeChild(chatContainer.lastChild);
+                }
+            }
 
             // Function to add a message to the chat
             function addMessage(text, className) {
@@ -220,15 +391,50 @@ HTML_CONTENT = """
                 }
             }
 
+            // Function to extract possible defect tags from description
+            function extractDefectTags(description) {
+                const defectKeywords = [
+                    "missing component", "solder bridge", "cold solder", "misaligned",
+                    "crack", "short circuit", "open circuit", "lifted pad", "tombstoning",
+                    "overheating", "damaged", "incorrect component", "wrong orientation",
+                    "flux residue", "insufficient solder", "excessive solder"
+                ];
+                
+                const foundDefects = [];
+                const lowerDesc = description.toLowerCase();
+                
+                defectKeywords.forEach(keyword => {
+                    if (lowerDesc.includes(keyword.toLowerCase())) {
+                        foundDefects.push(keyword);
+                    }
+                });
+                
+                return foundDefects;
+            }
+
             // Function to check if URL is an image
             function isImageUrl(url) {
-                const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
-                const lowerCaseUrl = url.toLowerCase();
-                return lowerCaseUrl.startsWith('data:image/') || imageExtensions.some(ext => lowerCaseUrl.endsWith(ext));
+                // Handle both data URLs and regular URLs
+                if (url.startsWith('data:image/')) {
+                    return true;
+                }
+                
+                // Handle HTTP/HTTPS URLs
+                if (url.startsWith('http')) {
+                    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+                    const lowerCaseUrl = url.toLowerCase();
+                    return imageExtensions.some(ext => lowerCaseUrl.endsWith(ext)) || 
+                           lowerCaseUrl.includes('/image') ||
+                           lowerCaseUrl.includes('supabase.co'); // Include your Supabase storage URLs
+                }
+                
+                return false;
             }
 
             // Function to check if URL is a video
             function isVideoUrl(url) {
+                if (!url || typeof url !== 'string') return false;
+                
                 const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi'];
                 const videoServices = ['youtube.com', 'youtu.be', 'vimeo.com'];
                 
@@ -247,8 +453,43 @@ HTML_CONTENT = """
                 return false;
             }
 
+            // Function to add debug indicator for image sources
+            function addDebugIndicator(resultDiv, url) {
+                // Create a small indicator showing what type of image source is being used
+                const indicatorDiv = document.createElement('div');
+                indicatorDiv.className = 'source-indicator';
+                
+                if (url && url.startsWith('data:image/')) {
+                    indicatorDiv.textContent = '🔒 Base64 Image';
+                    indicatorDiv.style.color = '#0066cc';
+                } else if (url && url.startsWith('http')) {
+                    indicatorDiv.textContent = '🔗 URL Image';
+                    indicatorDiv.style.color = '#009900';
+                } else {
+                    indicatorDiv.textContent = '❓ Unknown Source';
+                    indicatorDiv.style.color = '#cc0000';
+                }
+                
+                // Add the indicator to the result div
+                resultDiv.querySelector('.media-container').appendChild(indicatorDiv);
+            }
+
             // Function to create appropriate media element
             function createMediaElement(url) {
+                if (!url) {
+                    // Handle missing URL
+                    const container = document.createElement('div');
+                    container.className = 'image-container';
+                    
+                    const img = document.createElement('img');
+                    img.className = 'result-image';
+                    img.src = 'https://via.placeholder.com/400x300?text=No+Image+Available';
+                    img.alt = 'No image available';
+                    
+                    container.appendChild(img);
+                    return container;
+                }
+                
                 if (isImageUrl(url)) {
                     // Create image container
                     const container = document.createElement('div');
@@ -258,10 +499,10 @@ HTML_CONTENT = """
                     const img = document.createElement('img');
                     img.className = 'result-image';
                     img.src = url;
-                    img.alt = 'Clip result';
+                    img.alt = 'Result image';
                     img.onerror = function() {
                         this.onerror = null;
-                        this.src = 'https://via.placeholder.com/400x300?text=Image+Not+Available';
+                        this.src = 'https://via.placeholder.com/400x300?text=Image+Load+Error';
                     };
                     
                     container.appendChild(img);
@@ -306,34 +547,58 @@ HTML_CONTENT = """
                 aiMessage.className = 'ai-message';
                 
                 if (results.length === 0) {
-                    aiMessage.textContent = 'No matching clips found. Try a different search.';
+                    aiMessage.textContent = 'No matching results found. Try a different search.';
                     chatContainer.appendChild(aiMessage);
                     return;
                 }
 
-                aiMessage.textContent = `Found ${results.length} relevant clips:`;
+                aiMessage.textContent = `Found ${results.length} relevant results:`;
                 chatContainer.appendChild(aiMessage);
 
                 // Display each result
                 results.forEach(result => {
                     const resultDiv = document.importNode(resultTemplate.content, true);
+                    const resultName = resultDiv.querySelector('.result-name');
                     
-                    resultDiv.querySelector('.result-name').textContent = result.name;
+                    // Apply mode-specific styling
+                    if (currentMode === "pcb") {
+                        resultName.className = "pcb-result-name";
+                        resultDiv.querySelector('.result-item').classList.add('pcb-result-item');
+                    }
+                    
+                    resultName.textContent = result.name;
                     resultDiv.querySelector('.result-relevance').textContent = `Relevance: ${result.relevance}`;
+                    resultDiv.querySelector('.result-description').textContent = result.description;
+                    
+                    // Add defect tags for PCB mode
+                    if (currentMode === "pcb") {
+                        const defectTagsContainer = resultDiv.querySelector('.defect-tags-container');
+                        const defects = extractDefectTags(result.description);
+                        
+                        if (defects.length > 0) {
+                            defects.forEach(defect => {
+                                const tag = document.createElement('span');
+                                tag.className = 'defect-tag';
+                                tag.textContent = defect;
+                                defectTagsContainer.appendChild(tag);
+                            });
+                        }
+                    }
 
                     if (result.time_stamp) {
-                                const timestamp = new Date(result.time_stamp);
-                                const timestampElement = document.createElement('p');
-                                timestampElement.className = 'result-timestamp';
-                                timestampElement.textContent = `Recorded: ${timestamp.toLocaleString()}`;
-                                resultDiv.querySelector('.result-description').after(timestampElement);
-                        }
-
-                    resultDiv.querySelector('.result-description').textContent = result.description;
+                        const timestamp = new Date(result.time_stamp);
+                        const timestampElement = document.createElement('p');
+                        timestampElement.className = 'result-timestamp';
+                        timestampElement.textContent = `Recorded: ${timestamp.toLocaleString()}`;
+                        resultDiv.querySelector('.result-description').after(timestampElement);
+                    }
                     
                     const mediaContainer = resultDiv.querySelector('.media-container');
                     const mediaElement = createMediaElement(result.url);
                     mediaContainer.appendChild(mediaElement);
+                    
+                    // Add debug indicator
+                    addDebugIndicator(resultDiv, result.url);
                     
                     chatContainer.appendChild(resultDiv);
                 });
@@ -357,7 +622,10 @@ HTML_CONTENT = """
                         headers: {
                             'Content-Type': 'application/json'
                         },
-                        body: JSON.stringify({ query })
+                        body: JSON.stringify({ 
+                            query: query,
+                            mode: currentMode
+                        })
                     });
 
                     if (!response.ok) {
@@ -418,6 +686,14 @@ async def get_image(clip_id: str):
     
     base64_data = response.data[0]["base_64_image"]
     
+    # Check if it's a URL
+    if base64_data.startswith(('http://', 'https://')):
+        # Redirect to the actual URL
+        return Response(
+            status_code=307,  # Temporary redirect
+            headers={"Location": base64_data}
+        )
+    
     # If base64 includes a data URI prefix, remove it
     if "," in base64_data:
         _, base64_data = base64_data.split(",", 1)
@@ -433,26 +709,50 @@ async def get_image(clip_id: str):
 # API endpoint 
 @app.post("/api/search")
 async def search(query: SearchQuery):
-    results = search_engine.search(query.query)
+    # Modify search to include mode
+    print(f"Processing search in {query.mode} mode: '{query.query}'")
+
+    # Add contextual enhancement to query based on mode
+    enhanced_query = query.query
+    if query.mode == "pcb":
+        # Add PCB context to the query
+        enhanced_query = f"PCB inspection: {query.query}"
+    
+    # Use the search engine with the enhanced query
+    results = search_engine.search(enhanced_query)
     
     # Format the results
     formatted_results = []
     for clip in results:
         relevance = clip.get("relevance_score", 0) * 100
-
-
         base64_data = clip.get("base_64_image", "")
 
-
-        if base64_data and "," in base64_data:
-            _, base64_data = base64_data.split(",", 1)
-
-        img_actual = f"data:image/jpeg;base64,{base64_data}"
+        # Check if the base_64_image field contains a URL or Base64 data
+        if base64_data:
+            # Check if it's a URL (starts with http)
+            if base64_data.startswith(('http://', 'https://')):
+                img_actual = base64_data  # Use the URL directly
+                print(f"Using URL directly: {img_actual[:50]}...")
+            else:
+                # Handle as Base64 data
+                if "," in base64_data:
+                    _, base64_data = base64_data.split(",", 1)
+                img_actual = f"data:image/jpeg;base64,{base64_data}"
+                print("Using Base64 data")
+        else:
+            # Fallback if no image data
+            img_actual = ""
+        
+        # Customize display name based on mode
+        display_name = clip['camera_id']
+        if query.mode == "pcb":
+            # For PCB mode, use a more appropriate name format
+            display_name = f"PCB-{clip['id']}"
         
         # Add the timestamp to the response
         formatted_result = {
-            "name": clip['camera_id'],
-            "url": img_actual, #NOT DISPLAYING THE BASE 64 IMAGE
+            "name": display_name,
+            "url": img_actual,
             "description": clip['image_description'],
             "relevance": f"{relevance:.1f}%",
             "time_stamp": clip.get('time_created') 
@@ -461,11 +761,10 @@ async def search(query: SearchQuery):
     
     print(f"API returning {len(formatted_results)} results to frontend")
     if formatted_results:
-        print(f"First result: {formatted_results[0]}")
+        print(f"First result: {formatted_results[0]['name']}")
     
     return {"results": formatted_results}
 
 # http://localhost:8000/
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
-
