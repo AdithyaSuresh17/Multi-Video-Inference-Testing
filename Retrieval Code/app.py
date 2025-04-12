@@ -1,11 +1,12 @@
-# app.py
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 from search import ClipSearchEngine
 import uvicorn
+import base64
+from db import SupabaseConnector
 
-# Create FastAPI app
+
 app = FastAPI(title="Clip Search Engine")
 
 # Initialize search engine
@@ -158,7 +159,11 @@ HTML_CONTENT = """
                     <div class="card-body">
                         <div id="chat-container" class="mb-4">
                             <div class="system-message">
-                                Welcome to Clip Search! Ask me to find clips, for example: "Find a person in a black t-shirt" or "Show me clips with dogs playing".
+                                Welcome to Surveillance Search! You can ask questions like:
+                                - "Find a person in a black t-shirt" 
+                                - "Show me clips with people running"
+                                - "Show me footage from yesterday afternoon"
+                                - "Find groups of people in the lobby from last week"
                             </div>
                         </div>
                         <div class="input-group">
@@ -219,7 +224,7 @@ HTML_CONTENT = """
             function isImageUrl(url) {
                 const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
                 const lowerCaseUrl = url.toLowerCase();
-                return imageExtensions.some(ext => lowerCaseUrl.endsWith(ext));
+                return lowerCaseUrl.startsWith('data:image/') || imageExtensions.some(ext => lowerCaseUrl.endsWith(ext));
             }
 
             // Function to check if URL is a video
@@ -315,6 +320,15 @@ HTML_CONTENT = """
                     
                     resultDiv.querySelector('.result-name').textContent = result.name;
                     resultDiv.querySelector('.result-relevance').textContent = `Relevance: ${result.relevance}`;
+
+                    if (result.time_stamp) {
+                                const timestamp = new Date(result.time_stamp);
+                                const timestampElement = document.createElement('p');
+                                timestampElement.className = 'result-timestamp';
+                                timestampElement.textContent = `Recorded: ${timestamp.toLocaleString()}`;
+                                resultDiv.querySelector('.result-description').after(timestampElement);
+                        }
+
                     resultDiv.querySelector('.result-description').textContent = result.description;
                     
                     const mediaContainer = resultDiv.querySelector('.media-container');
@@ -392,7 +406,31 @@ HTML_CONTENT = """
 async def home():
     return HTMLResponse(content=HTML_CONTENT)
 
-# API endpoint for search
+
+@app.get("/api/image/{clip_id}")
+async def get_image(clip_id: str):
+    # Get the specific image from database
+    db_connector = SupabaseConnector()
+    response = db_connector.client.table("todos").select("base_64_image").eq("id", clip_id).execute()
+    
+    if not response.data:
+        return HTTPException(status_code=404, detail="Image not found")
+    
+    base64_data = response.data[0]["base_64_image"]
+    
+    # If base64 includes a data URI prefix, remove it
+    if "," in base64_data:
+        _, base64_data = base64_data.split(",", 1)
+    
+    # Decode the base64 data
+    try:
+        image_data = base64.b64decode(base64_data)
+        return Response(content=image_data, media_type="image/jpeg")
+    except Exception as e:
+        print(f"Error decoding image: {e}")
+        return HTTPException(status_code=500, detail="Error processing image")
+
+# API endpoint 
 @app.post("/api/search")
 async def search(query: SearchQuery):
     results = search_engine.search(query.query)
@@ -401,15 +439,33 @@ async def search(query: SearchQuery):
     formatted_results = []
     for clip in results:
         relevance = clip.get("relevance_score", 0) * 100
-        formatted_results.append({
-            "name": clip['Clip_Name'],
-            "url": clip['Clip_URL'],
-            "description": clip['Clip_Description'],
-            "relevance": f"{relevance:.1f}%"
-        })
+
+
+        base64_data = clip.get("base_64_image", "")
+
+
+        if base64_data and "," in base64_data:
+            _, base64_data = base64_data.split(",", 1)
+
+        img_actual = f"data:image/jpeg;base64,{base64_data}"
+        
+        # Add the timestamp to the response
+        formatted_result = {
+            "name": clip['camera_id'],
+            "url": img_actual, #NOT DISPLAYING THE BASE 64 IMAGE
+            "description": clip['image_description'],
+            "relevance": f"{relevance:.1f}%",
+            "time_stamp": clip.get('time_created') 
+        }
+        formatted_results.append(formatted_result)
+    
+    print(f"API returning {len(formatted_results)} results to frontend")
+    if formatted_results:
+        print(f"First result: {formatted_results[0]}")
     
     return {"results": formatted_results}
 
-# Run the app
+# http://localhost:8000/
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
