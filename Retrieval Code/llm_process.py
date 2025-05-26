@@ -2,6 +2,7 @@
 import json
 from openai import OpenAI
 from config import OPENAI_API_KEY, GPT_MODEL
+from datetime import datetime, timedelta
 
 class QueryProcessor:
     def __init__(self):
@@ -10,20 +11,106 @@ class QueryProcessor:
         self.model = GPT_MODEL
     
     def extract_search_terms(self, user_query):
-        """Extract structured search terms from user query"""
-        system_prompt = "You are a search query analyzer. Extract key visual elements from the user's search query."
+        """Extract structured search terms from user query including temporal aspects"""
+        system_prompt = "You are a multi-purpose search query analyzer that can handle manufacturing monitoring, PCB inspection search, and surveillance footage search queries. Extract key visual elements and time references from the user's search query."
         
-        user_prompt = f"""
-        Analyze this search query: "{user_query}"
+        current_date = datetime.now()
         
-        Extract and return a JSON object with these fields:
-        - keywords: List of important words or phrases to search for
-        - primary_objects: Main subjects/objects in the query
-        - attributes: Descriptive attributes (colors, sizes, etc.)
-        - actions: Actions or behaviors mentioned
+        # Check query type first
+        is_pcb_query = "pcb" in user_query.lower() or "circuit board" in user_query.lower() or "circuit" in user_query.lower() or user_query.lower().startswith("pcb inspection:")
+        is_manufacturing_query = "manufacturing" in user_query.lower() or "monitoring" in user_query.lower() or "station" in user_query.lower() or "soldering" in user_query.lower() or ("pick" in user_query.lower() and "place" in user_query.lower())
         
-        Return only the JSON without explanation.
-        """
+        if is_manufacturing_query:
+            # Manufacturing-specific system instructions
+            user_prompt = f"""
+            Analyze this manufacturing monitoring query: "{user_query}"
+            
+            Today's date is {current_date.strftime('%Y-%m-%d')}.
+            
+            Extract and return a JSON object with these fields:
+            - keywords: List of important words or phrases to search for
+            - monitoring_zone: Which manufacturing zone is being monitored ("soldering" or "pick_place")
+            - process_parameters: Any mentioned process parameters (temperature, speed, pressure, etc.)
+            - issue_types: Types of issues or defects mentioned
+            - alert_levels: Severity levels mentioned ("normal", "warning", "critical")
+            - time_references: Object with these fields:
+            KEEP IN MIND: 
+                - As a default if the year is not present, it will be set to 2025 for all dates
+                - For relative time expressions, calculate the actual date based on today ({current_date.strftime('%Y-%m-%d')})
+                - Convert expressions like "N days ago", "N weeks back", "N months ago" to actual dates
+                - "today" means {current_date.strftime('%Y-%m-%d')}
+                - "yesterday" means {(current_date - timedelta(days=1)).strftime('%Y-%m-%d')}
+                - "last week" means the 7-day period ending today
+                
+                - specific_date: ISO date string YYYY-MM-DD if mentioned, null if not
+                - specific_time: Time in 24hr format HH:MM if mentioned, null if not
+                - relative_time: Original text descriptions like "yesterday", "last week", "3 days ago", etc.
+                - time_period: Object with "start" and "end" fields if a range is mentioned
+                - day_part: Morning/afternoon/evening/night if mentioned
+            
+            Return only the JSON without explanation.
+            """
+        elif is_pcb_query:
+            # PCB-specific system instructions
+            user_prompt = f"""
+            Analyze this PCB inspection search query: "{user_query}"
+            
+            Today's date is {current_date.strftime('%Y-%m-%d')}.
+            
+            Extract and return a JSON object with these fields:
+            - keywords: List of important words or phrases to search for
+            - primary_components: Main PCB components in the query (capacitors, resistors, ICs, etc.)
+            - defect_types: Types of defects mentioned (missing components, solder bridges, misalignments, etc.)
+            - manufacturing_phase: Any mentioned manufacturing phase (assembly, soldering, testing)
+            - time_references: Object with these fields:
+            KEEP IN MIND: 
+                - As a default if the year is not present, it will be set to 2025 for all dates
+                - For relative time expressions, calculate the actual date based on today ({current_date.strftime('%Y-%m-%d')})
+                - Convert expressions like "N days ago", "N weeks back", "N months ago" to actual dates
+                - "today" means {current_date.strftime('%Y-%m-%d')}
+                - "yesterday" means {(current_date - timedelta(days=1)).strftime('%Y-%m-%d')}
+                - "last week" means the 7-day period ending today
+                
+                - specific_date: ISO date string YYYY-MM-DD if mentioned, null if not
+                - specific_time: Time in 24hr format HH:MM if mentioned, null if not
+                - relative_time: Original text descriptions like "yesterday", "last week", "3 days ago", etc.
+                - time_period: Object with "start" and "end" fields if a range is mentioned
+                - day_part: Morning/afternoon/evening/night if mentioned
+            
+            Return only the JSON without explanation.
+            """
+        else:
+            # Original surveillance prompt
+            user_prompt = f"""
+            Analyze this surveillance search query: "{user_query}"
+            
+            Today's date is {current_date.strftime('%Y-%m-%d')}.
+            
+            Extract and return a JSON object with these fields:
+            - keywords: List of important words or phrases to search for
+            - primary_objects: Main subjects/objects in the query
+            - attributes: Descriptive attributes (colors, sizes, etc.)
+            - actions: Actions or behaviors mentioned
+            - time_references:  Object with these fields:
+            KEEP IN MIND: 
+                - As a default if the year is not present, it will be set to 2025 for all dates
+                - For relative time expressions, calculate the actual date based on today ({current_date.strftime('%Y-%m-%d')})
+                - Handle time constraints like "between 12 Am and 6 PM" (meaning from 12 AM until 6 PM)
+                - Handle time constraints like "before 8 PM" (meaning from start of day until 8 PM)
+                - Handle time constraints like "after 3 PM" (meaning from 3 PM until end of day)
+                - Convert expressions like "N days ago", "N weeks back", "N months ago" to actual dates
+                - "today" means {current_date.strftime('%Y-%m-%d')}
+                - "yesterday" means {(current_date - timedelta(days=1)).strftime('%Y-%m-%d')}
+                - "last week" means the 7-day period ending today
+                
+                - specific_date: ISO date string YYYY-MM-DD if mentioned, null if not
+                - specific_time: Time in 24hr format HH:MM if mentioned, null if not
+                - relative_time: Original text descriptions like "yesterday", "last week", "3 days ago", etc.
+                - time_period: Object with "start" and "end" fields if a range is mentioned
+                - day_part: Morning/afternoon/evening/night if mentioned
+            
+            Return only the JSON without explanation.
+            """
         
         response = self.client.chat.completions.create(
             model=self.model,
@@ -46,13 +133,29 @@ class QueryProcessor:
             return json.loads(content)
         except Exception as e:
             print(f"Error parsing search terms: {e}")
-            # Fallback to basic structure
-            return {
-                "keywords": [word for word in user_query.split() if len(word) > 2],
-                "primary_objects": [],
-                "attributes": [],
-                "actions": []
-            }
+            # Fallback to basic structure based on query type
+            if is_manufacturing_query:
+                return {
+                    "keywords": [word for word in user_query.split() if len(word) > 2],
+                    "monitoring_zone": "soldering" if "solder" in user_query.lower() else "pick_place",
+                    "process_parameters": [],
+                    "issue_types": [],
+                    "alert_levels": []
+                }
+            elif is_pcb_query:
+                return {
+                    "keywords": [word for word in user_query.split() if len(word) > 2],
+                    "primary_components": [],
+                    "defect_types": [],
+                    "manufacturing_phase": []
+                }
+            else:
+                return {
+                    "keywords": [word for word in user_query.split() if len(word) > 2],
+                    "primary_objects": [],
+                    "attributes": [],
+                    "actions": []
+                }
     
     def rank_clips(self, user_query, clips, threshold=0.6):
         """Rank clips by relevance to the query"""
@@ -64,13 +167,36 @@ class QueryProcessor:
         for clip in clips:
             clip_data.append({
                 "id": clip["id"],
-                "description": clip["Clip_Description"]
+                "description": clip["image_description"],
+                "camera_id": clip.get("camera_id", "")
             })
         
-        system_prompt = """
-        You are a clip search system. Evaluate how relevant each clip is to the user's search query.
-        Return a JSON list of objects with id and score fields, where score is between 0 and 1.
-        """
+        # Check query type
+        is_pcb_query = "pcb" in user_query.lower() or "circuit board" in user_query.lower() or "component" in user_query.lower() or user_query.lower().startswith("pcb inspection:")
+        is_manufacturing_query = "manufacturing" in user_query.lower() or "monitoring" in user_query.lower() or "station" in user_query.lower() or "soldering" in user_query.lower() or ("pick" in user_query.lower() and "place" in user_query.lower())
+        
+        if is_manufacturing_query:
+            system_prompt = """
+            You are a manufacturing monitoring system. Evaluate how relevant each clip is to the user's manufacturing monitoring query.
+            Return a JSON list of objects with id and score fields, where score is between 0 and 1.
+            
+            For soldering stations, focus on solder quality, temperature issues, reflow problems, and joint defects.
+            For pick-and-place stations, focus on component placement, alignment, missing parts, and gripper issues.
+            """
+        elif is_pcb_query:
+            system_prompt = """
+            You are a PCB inspection analysis system. Evaluate how relevant each clip is to the user's PCB inspection query.
+            Return a JSON list of objects with id and score fields, where score is between 0 and 1.
+            
+            Focus on PCB manufacturing defects, component issues, and quality control aspects.
+            """
+        else:
+            system_prompt = """
+            You are a surveillance clip search system. Evaluate how relevant each clip is to the user's search query.
+            Return a JSON list of objects with id and score fields, where score is between 0 and 1.
+            
+            Focus on people, actions, objects, and scene descriptions in surveillance context.
+            """
         
         user_prompt = f"""
         User search query: "{user_query}"
@@ -125,3 +251,97 @@ class QueryProcessor:
             print(f"Error ranking clips: {e}")
             print(f"Raw response: {response.choices[0].message.content}")
             return []
+            
+    def parse_time_references(self, time_refs):
+        """Convert natural language time references to actual timestamps"""
+        from datetime import datetime, timedelta
+        
+        now = datetime.now()
+        result = {"start_time": None, "end_time": None}
+
+        print(f"Parsing time references: {time_refs}")
+
+        if time_refs.get("time_period") and isinstance(time_refs["time_period"], dict):
+            period = time_refs["time_period"]
+            if period.get("start"):
+                result["start_time"] = period["start"]
+            if period.get("end"):
+                result["end_time"] = period["end"]
+            return result
+
+        # Handle specific date
+        if time_refs.get("specific_date"):
+            try:
+                base_date = datetime.fromisoformat(time_refs["specific_date"])
+                
+                # If today is mentioned, use actual current date
+                if time_refs.get("relative_time") and "today" in time_refs["relative_time"].lower():
+                    base_date = now.replace(hour=0, minute=0, second=0)
+                
+                # Check for "before X time" pattern
+                if time_refs.get("specific_time") and time_refs.get("relative_time") and "before" in str(time_refs.get("relative_time", "")).lower():
+                    time_parts = time_refs["specific_time"].split(":")
+                    hour = int(time_parts[0])
+                    minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+                    
+                    end_time = base_date.replace(hour=hour, minute=minute, second=0)
+                    start_time = base_date.replace(hour=0, minute=0, second=0)  # Start of day
+                    
+                    result["start_time"] = start_time.isoformat()
+                    result["end_time"] = end_time.isoformat()
+                    return result
+                    
+                # Default time handling
+                if not time_refs.get("specific_time"):
+                    result["start_time"] = base_date.replace(hour=0, minute=0, second=0).isoformat()
+                    result["end_time"] = base_date.replace(hour=23, minute=59, second=59).isoformat()
+                else:
+                    # Handle specific time on specific date
+                    time_parts = time_refs["specific_time"].split(":")
+                    base_date = base_date.replace(hour=int(time_parts[0]), minute=int(time_parts[1]))
+                    # Default to a 1-hour window if just a specific time
+                    result["start_time"] = base_date.isoformat()
+                    result["end_time"] = (base_date + timedelta(hours=1)).isoformat()
+            except Exception as e:
+                print(f"Error parsing date: {e}")
+        
+        # Handle relative time references
+        if time_refs.get("relative_time"):
+            rel_time = time_refs["relative_time"].lower()
+            if "yesterday" in rel_time:
+                yesterday = now - timedelta(days=1)
+                result["start_time"] = yesterday.replace(hour=0, minute=0, second=0).isoformat()
+                result["end_time"] = yesterday.replace(hour=23, minute=59, second=59).isoformat()
+            elif "last week" in rel_time:
+                start = now - timedelta(days=7)
+                result["start_time"] = start.replace(hour=0, minute=0, second=0).isoformat()
+                result["end_time"] = now.isoformat()
+            elif "last hour" in rel_time or "past hour" in rel_time:
+                start = now - timedelta(hours=1)
+                result["start_time"] = start.isoformat()
+                result["end_time"] = now.isoformat()
+            elif "last shift" in rel_time or "past shift" in rel_time:
+                # Assume a standard 8-hour shift
+                start = now - timedelta(hours=8)
+                result["start_time"] = start.isoformat()
+                result["end_time"] = now.isoformat()
+        
+        # Handle day parts
+        if time_refs.get("day_part") and not result["start_time"]:
+            day_part = time_refs["day_part"].lower()
+            base_date = now.replace(hour=0, minute=0, second=0)
+            if "morning" in day_part:
+                result["start_time"] = base_date.replace(hour=6).isoformat()
+                result["end_time"] = base_date.replace(hour=12).isoformat()
+            elif "afternoon" in day_part:
+                result["start_time"] = base_date.replace(hour=12).isoformat()
+                result["end_time"] = base_date.replace(hour=18).isoformat()
+            elif "evening" in day_part:
+                result["start_time"] = base_date.replace(hour=18).isoformat()
+                result["end_time"] = base_date.replace(hour=22).isoformat()
+            elif "night" in day_part:
+                result["start_time"] = base_date.replace(hour=22).isoformat()
+                result["end_time"] = (base_date + timedelta(days=1)).replace(hour=6).isoformat()
+        
+        print(f"Parsed result: {result}")
+        return result

@@ -14,5 +14,5 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GPT_MODEL = os.getenv("GPT_MODEL", "gpt-4o-mini")
 
 # Search settings
-RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "0.6"))
+RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "0.71"))
 MAX_RESULTS = int(os.getenv("MAX_RESULTS", "10"))
